@@ -26,6 +26,7 @@ Un requisito de método: el fork debe poder seguir fusionando cambios del upstre
 3. Desde el root se pueden crear usuarios y roles con políticas, y esas políticas se aplican de verdad.
 4. Prioridad de servicios: S3, KMS, Secrets Manager, IAM, y STS porque la autenticación depende de él (`GetCallerIdentity`, `AssumeRole`). Para estos, lo que no se sepa mapear a una acción se deniega en lugar de permitirse.
 5. El resto del upstream sigue pasando sus tests con un perfil de tests propio.
+6. Nadie puede entrar con `floci/floci`. El usuario `floci-deployer` pasa a tener una credencial aleatoria, generada en el primer arranque, guardada y de uso interno: no se muestra en el log ni se entrega a ninguna persona. Solo la usa Floci para los procesos que lanza él mismo.
 
 ## No objetivos
 
@@ -51,23 +52,24 @@ Un requisito de método: el fork debe poder seguir fusionando cambios del upstre
 Se evaluaron: (1) modificar el filtro en el sitio, (2) capa aparte con ganchos mínimos, (3) un proxy de autenticación delante. Se descartó el 3 porque duplicaría el estado de IAM, y Jordi eligió el 2 para poder seguir el upstream.
 
 Clases nuevas (nombres orientativos):
-- `RootCredentialBootstrap`: genera o recibe el root, lo registra en el almacén de claves de acceso del IAM existente y decide qué hacer en cada arranque.
+- `RootCredentialBootstrap`: genera o recibe el root, lo registra en el almacén de claves de acceso del IAM existente y decide qué hacer en cada arranque. Hace lo mismo para el par interno del `floci-deployer`, que genera sin mostrarlo, y lo ofrece al resto de Floci a través de un proveedor interno.
 - `StrictModePolicy`: decide si una petición sin acción mapeada se deniega, según el servicio.
 
 Ganchos en código existente, todos pequeños:
 - `IamEnforcementFilter.filter()`: la rama `"test".equals(akid)` pasa a depender de un flag `floci.auth.allow-test-credentials`.
 - `IamEnforcementFilter`, el segundo uso de `"test"` en el método de autorización de recursos adicionales: mismo flag.
 - La rama "REST route no rule maps → ALLOW" y las acciones sin resolver: consultan `StrictModePolicy`.
-- `IamService.seedDefaults()`: una llamada a `RootCredentialBootstrap`.
+- `IamService.seedDefaults()`: una llamada a `RootCredentialBootstrap`. Además, `seedDefaultDeployerPrincipal()` deja de usar las constantes `floci/floci` y toma el par que le da el bootstrap.
+- Los sitios que hoy inyectan `AWS_ACCESS_KEY_ID=test` en los contenedores que Floci lanza (EC2, SageMaker, ECS) y en los init hooks toman el par interno del proveedor. Es un cambio de una línea en cada sitio.
 
 ### Quién llama a Floci y qué se ve afectado
 
 - **Peticiones sin firma legítimas.** El filtro ya distingue las operaciones que AWS sirve sin credenciales (`noAuth`, como `AssumeRoleWithWebIdentity` y `AssumeRoleWithSAML`), las URL prefirmadas y el acceso anónimo a S3 que una política de recurso permite. Nada de eso cambia. `StrictModePolicy` solo actúa sobre peticiones firmadas cuyo ámbito de credencial sea `s3`, `kms`, `secretsmanager`, `iam` o `sts`, y solo en la rama de acción sin mapear. Los endpoints que no son API (salud, OIDC, runtime de Lambda, function URLs, ejecución de API Gateway) quedan fuera.
 - **Llamadas de servicio a servicio** (por ejemplo SES publicando en SNS) no pasan por el filtro: las decide `ServiceCallAuthorizer` con la política de recurso. No cambian.
-- **Contenedores que Floci lanza.** EC2, SageMaker y ECS inyectan hoy `AWS_ACCESS_KEY_ID=test`, que dejará de valer. En esta fase se documenta como limitación conocida y no se les inyecta el root. Los scripts de inicialización (init hooks) sí reciben las credenciales root, porque los escribe el operador.
-- **`floci-deployer`** (clave `floci/floci`) sigue apagado por defecto (`seed-deployer-principal=false`). Si alguien lo activa, es una decisión explícita con una clave conocida, y la documentación lo advierte.
+- **Contenedores que Floci lanza y scripts de inicialización.** EC2, SageMaker, ECS y los init hooks inyectan hoy `AWS_ACCESS_KEY_ID=test`, que dejará de valer. Pasan a recibir el par interno del `floci-deployer`, no el root, de modo que el secret del root solo lo ve quien lo genera o lo pone por entorno.
+- **`floci-deployer`.** Se activa por defecto (`seed-deployer-principal=true`), conserva la política `AdministratorAccess` que ya tiene y su par pasa a ser aleatorio, generado una vez, guardado y nunca mostrado. Si un almacén persistente de una versión anterior contiene la clave `floci`, se borra al arrancar.
 
-Valores por defecto del fork: `iam.enforcement-enabled=true`, `auth.validate-signatures=true`, `s3.enforce-auth=true`, `allow-test-credentials=false`. Los tests del upstream corren con un perfil de test que los deja como antes y pone `allow-test-credentials=true`.
+Valores por defecto del fork: `iam.enforcement-enabled=true`, `auth.validate-signatures=true`, `s3.enforce-auth=true`, `allow-test-credentials=false`, `seed-deployer-principal=true`. Los tests del upstream corren con un perfil de test que los deja como antes y pone `allow-test-credentials=true`.
 
 ## Decisiones
 
@@ -75,6 +77,7 @@ Dichas por Jordi:
 - El comportamiento seguro es el predeterminado del fork, no un modo opcional.
 - Root: generado en el primer arranque o por entorno; guardado; el entorno lo sobrescribe; recuperación solo por entorno o borrando datos.
 - Servicios prioritarios: S3, KMS, Secrets Manager, IAM.
+- Las credenciales de `floci-deployer` son aleatorias e internas, para que nadie pueda usar `floci/floci`.
 
 Mías (a confirmar al leer):
 - Nombres de variables: `FLOCI_ROOT_ACCESS_KEY_ID` y `FLOCI_ROOT_SECRET_ACCESS_KEY`. Si solo viene una de las dos, el arranque falla con un mensaje claro.
@@ -83,8 +86,9 @@ Mías (a confirmar al leer):
 - El root es una identidad de tipo cuenta (`arn:aws:iam::<cuenta>:root`) con acceso total, sin usuario IAM detrás, como ya se trata hoy el stand-in de root.
 - Como un root solo en memoria se perdería en cada reinicio, el fork arranca con almacenamiento `persistent` por defecto. Se avisa en el log si se configura `memory` con enforcement activo.
 - STS entra en el conjunto estricto por depender de él la autenticación.
-- Los init hooks reciben las credenciales root; EC2, SageMaker y ECS quedan para una fase posterior.
-- `floci-deployer` no cambia: sigue apagado por defecto.
+- Por "interno" entiendo: generado una vez, guardado, nunca impreso, y usado solo por los procesos que lanza Floci (init hooks y contenedores de EC2, SageMaker y ECS). Mantiene `AdministratorAccess`, como hoy.
+- `floci-deployer` se activa por defecto, porque sin él esos procesos no tendrían credenciales válidas.
+- Un `floci/floci` heredado de un almacén persistente antiguo se elimina al arrancar.
 
 ## Criterios de éxito
 
@@ -93,6 +97,7 @@ Mías (a confirmar al leer):
 - Con el root se crea un usuario con una política que solo permite `s3:GetObject` sobre un bucket: puede leer y no puede escribir (AccessDenied). Lo mismo se comprueba para KMS y Secrets Manager.
 - Un reinicio en modo `persistent` conserva el root y no genera otro. Pasar otro par por entorno lo sustituye. Borrar los datos genera uno nuevo.
 - La suite del upstream pasa con el perfil de tests.
+- Firmar con `floci/floci` se rechaza. Un init hook y un contenedor de EC2 que llaman a S3 con el par interno funcionan.
 
 ## Deja al constructor
 
@@ -100,3 +105,4 @@ Mías (a confirmar al leer):
 - Comprobar que una clave de acceso sin usuario detrás se evalúa como root completo en el evaluador y en cada servicio prioritario.
 - La lista concreta de rutas REST y acciones de S3, KMS, Secrets Manager, IAM y STS que hay que cubrir, a partir de `IamActionRegistry` y sus tests de cobertura.
 - Estructura de paquetes y nombres definitivos de las clases nuevas.
+- La lista exacta de sitios que inyectan `test/test` hoy (los de EC2, SageMaker, ECS e init hooks son los que he visto, puede haber más).
