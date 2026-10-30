@@ -44,7 +44,7 @@ safe_logs() {
 }
 
 pass() { echo "PASS: $1"; }
-fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
+fail() { echo "FAIL: $1"; echo "::error title=secure smoke test::$1"; FAILURES=$((FAILURES + 1)); }
 
 # aws_as ACCESS_KEY SECRET_KEY args...
 aws_as() {
