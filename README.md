@@ -84,7 +84,7 @@ This short demo shows the CLI flow: start Floci, export the local AWS environmen
 
 https://github.com/user-attachments/assets/b55714dc-ef36-40ae-a734-cd2cadc288a8
 
-All AWS services are available at `http://localhost:4566`. Any [published AWS region](https://floci.io/floci/configuration/partitions/) works, in every partition. This fork is secure by default: requests must be signed and are authorized by IAM policies. Floci generates the root credentials at first start and logs them once; set `FLOCI_ROOT_ACCESS_KEY_ID` and `FLOCI_ROOT_SECRET_ACCESS_KEY` to choose them. The `test` / `test` pair is rejected. See [Secure Mode](docs/configuration/secure-mode.md).
+All AWS services are available at `http://localhost:4566`. Any [published AWS region](https://floci.io/floci/configuration/partitions/) works, in every partition. This fork is secure by default: S3, KMS, Secrets Manager, IAM and STS requests must be signed and are authorized by IAM policies (other services: see the limitations in Secure Mode). Floci generates the root credentials at first start and logs them once; set `FLOCI_ROOT_ACCESS_KEY_ID` and `FLOCI_ROOT_SECRET_ACCESS_KEY` to choose them. The `test` / `test` pair is rejected. See [Secure Mode](docs/configuration/secure-mode.md).
 
 <details>
 <summary>Prefer Docker Compose?</summary>
