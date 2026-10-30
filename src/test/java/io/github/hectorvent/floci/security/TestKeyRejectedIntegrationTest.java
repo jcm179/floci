@@ -73,7 +73,7 @@ class TestKeyRejectedIntegrationTest {
     }
 
     @Test
-    void s3PostPolicySignedCorrectlyWithTheTestKeyIsRejected() {
+    void s3PostPolicySignedCorrectlyWithTheTestKeyIsRejected() throws Exception {
         String bucket = "test-key-rejected-post-bucket";
         String key = "post-object.txt";
         String policyBase64 = policyBase64(bucket, key);
