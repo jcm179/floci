@@ -7,6 +7,7 @@ import io.github.hectorvent.floci.core.common.auth.SessionTokenCheck;
 import io.github.hectorvent.floci.core.common.auth.SigV4Canonicalization;
 import io.github.hectorvent.floci.core.common.auth.SigV4RequestValidator;
 import io.github.hectorvent.floci.core.common.auth.SigV4SignedRequest;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.iam.IamService;
 import io.github.hectorvent.floci.services.iam.model.AccessKey;
 import io.github.hectorvent.floci.services.iam.model.IamUser;
@@ -57,7 +58,6 @@ public class ExecuteApiSigV4Authorizer {
     /** Where a temporary credential's session token rides: a header, or a presigned query parameter. */
     private static final String SECURITY_TOKEN = "X-Amz-Security-Token";
 
-    private static final String LEGACY_ACCESS_KEY_ID = "test";
     private static final String LEGACY_SECRET_KEY = "test";
 
     private final IamService iamService;
@@ -230,7 +230,7 @@ public class ExecuteApiSigV4Authorizer {
      * {@link #checkSessionToken}.
      */
     private String resolveSecretKey(String accessKeyId) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return LEGACY_SECRET_KEY;
         }
         String callerAccount = iamService.resolveAccountId(accessKeyId).orElse(null);
@@ -251,7 +251,7 @@ public class ExecuteApiSigV4Authorizer {
      * presigned query, and ignores it in the other place.
      */
     private Result checkSessionToken(String accessKeyId, String presented) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return null;
         }
         return switch (SessionTokenCheck.of(iamService, accessKeyId, presented)) {

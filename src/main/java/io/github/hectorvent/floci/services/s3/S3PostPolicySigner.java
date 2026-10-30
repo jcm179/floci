@@ -1,5 +1,6 @@
 package io.github.hectorvent.floci.services.s3;
 
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.iam.IamService;
 
 import javax.crypto.Mac;
@@ -19,7 +20,6 @@ import java.util.Optional;
  */
 final class S3PostPolicySigner {
 
-    static final String LEGACY_ACCESS_KEY_ID = "test";
     static final String LEGACY_SECRET_KEY = "test";
 
     /** S3's error list: {@code ExpiredToken}, 400 Bad Request. */
@@ -29,7 +29,7 @@ final class S3PostPolicySigner {
     }
 
     static Optional<String> resolveSecretKey(IamService iamService, String accessKeyId, String sessionToken) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return Optional.of(LEGACY_SECRET_KEY);
         }
         if (iamService != null) {

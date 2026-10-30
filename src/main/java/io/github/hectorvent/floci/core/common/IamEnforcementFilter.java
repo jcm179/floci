@@ -2,6 +2,7 @@ package io.github.hectorvent.floci.core.common;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.hectorvent.floci.config.EmulatorConfig;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.cloudtrail.CloudTrailService;
 import io.github.hectorvent.floci.services.iam.AccessDeniedMessages;
 import io.github.hectorvent.floci.services.iam.AccessDeniedMessages.PolicyType;
@@ -324,7 +325,7 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
         }
 
         String akid = accountResolver.extractAccessKeyId(auth);
-        if ("test".equals(akid)) {
+        if (LegacyTestCredentials.accepts(akid)) {
             return; // root bypass
         }
 
@@ -1378,7 +1379,7 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
             return;
         }
         String akid = accountResolver.extractAccessKeyId(authorizationHeader);
-        if (akid == null || "test".equals(akid)) {
+        if (akid == null || LegacyTestCredentials.accepts(akid)) {
             return;
         }
         String rawScope = extractCredentialScope(authorizationHeader);

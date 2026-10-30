@@ -11,6 +11,7 @@ import io.github.hectorvent.floci.core.common.auth.SigV4Canonicalization;
 import io.github.hectorvent.floci.core.common.auth.SigV4RequestValidator;
 import io.github.hectorvent.floci.core.common.auth.SigV4SignedRequest;
 import io.github.hectorvent.floci.core.common.auth.SigV4SignedRequest.Freshness;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator.Decision;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator.ResourceAccountRelationship;
@@ -234,7 +235,7 @@ public class LambdaWebIamAuth {
      * signs with {@code test}.
      */
     private String secretKey(String accessKeyId, String sessionToken) {
-        if (TEST_ACCESS_KEY.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return TEST_ACCESS_KEY;
         }
         if (SessionTokenCheck.of(iamService, accessKeyId, sessionToken) != SessionTokenCheck.VALID) {
@@ -246,7 +247,7 @@ public class LambdaWebIamAuth {
     }
 
     private boolean authorize(String accessKeyId, WebFunctionTarget target) {
-        if (!config.services().iam().enforcementEnabled() || TEST_ACCESS_KEY.equals(accessKeyId)) {
+        if (!config.services().iam().enforcementEnabled() || LegacyTestCredentials.accepts(accessKeyId)) {
             return true;
         }
         Optional<String> callerAccount = iamService.resolveAccountId(accessKeyId);

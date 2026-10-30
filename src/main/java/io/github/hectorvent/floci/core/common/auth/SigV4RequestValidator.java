@@ -1,6 +1,7 @@
 package io.github.hectorvent.floci.core.common.auth;
 
 import io.github.hectorvent.floci.core.common.Digests;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.iam.IamService;
 import org.jboss.logging.Logger;
 
@@ -45,7 +46,6 @@ public final class SigV4RequestValidator {
      * identical fallback in S3Service/PreSignedUrlFilter. Deliberately not a fallback for any
      * other unregistered access key, only this exact, already-public pair is honored.
      */
-    private static final String LEGACY_ACCESS_KEY_ID = "test";
     private static final String LEGACY_SECRET_KEY = "test";
 
     private final IamService iamService;
@@ -148,7 +148,7 @@ public final class SigV4RequestValidator {
             String credentialScope = date + "/" + region + "/" + service + "/aws4_request";
 
             String secretKey;
-            if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+            if (LegacyTestCredentials.accepts(accessKeyId)) {
                 secretKey = LEGACY_SECRET_KEY;
             } else {
                 Optional<String> registeredSecretKey = registeredSecretKey(

@@ -28,6 +28,7 @@ import io.github.hectorvent.floci.core.storage.AccountAwareStorageBackend;
 import io.github.hectorvent.floci.core.storage.StorageBackend;
 import io.github.hectorvent.floci.core.storage.StorageFactory;
 import io.github.hectorvent.floci.core.storage.WriteProfile;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.eventbridge.EventBridgeService;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator.ResourcePolicyDecision;
@@ -122,7 +123,6 @@ public class S3Service implements Resettable, ResourceProvider {
     public static final String REDSHIFT_SPECTRUM_SCRATCH_TAG_VALUE = "redshift-spectrum-scratch";
     private static final String AUTHENTICATED_USERS_GROUP_URI = "http://acs.amazonaws.com/groups/global/AuthenticatedUsers";
     private static final String LOG_DELIVERY_GROUP_URI = "http://acs.amazonaws.com/groups/s3/LogDelivery";
-    private static final String LEGACY_ACCESS_KEY_ID = "test";
     private static final String S3_XML_SCHEMA_ERROR =
             "The XML you provided was not well-formed or did not validate against our published schema.";
     private static final Set<String> OBJECT_OWNERSHIP_VALUES = Set.of(
@@ -1622,7 +1622,7 @@ public class S3Service implements Resettable, ResourceProvider {
 
     private boolean isSameAccountAsBucketOwner(String accessKeyId, String principalArn, String bucketOwnerAccount) {
         String owner = bucketOwnerAccount != null ? bucketOwnerAccount : ownerId();
-        return (LEGACY_ACCESS_KEY_ID.equals(accessKeyId) && owner.equals(ownerId()))
+        return (LegacyTestCredentials.accepts(accessKeyId) && owner.equals(ownerId()))
                 || (accessKeyId != null && accessKeyId.equals(owner))
                 || (principalArn != null && owner.equals(extractAccountId(principalArn)));
     }
@@ -1646,7 +1646,7 @@ public class S3Service implements Resettable, ResourceProvider {
             String resourceArn,
             RequestAuthorization authorization) {
         if (authorization == null || !authorization.signed()
-                || LEGACY_ACCESS_KEY_ID.equals(authorization.accessKeyId()) || iamService == null) {
+                || LegacyTestCredentials.accepts(authorization.accessKeyId()) || iamService == null) {
             return new SignedPrincipalResourcePolicyEvaluation(ResourcePolicyDecision.NEUTRAL, null);
         }
 
@@ -1708,7 +1708,7 @@ public class S3Service implements Resettable, ResourceProvider {
         if (accessKeyId == null || accessKeyId.isBlank()) {
             return false;
         }
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return true;
         }
         return iamService != null

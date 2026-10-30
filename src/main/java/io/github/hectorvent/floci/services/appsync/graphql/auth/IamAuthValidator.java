@@ -7,6 +7,7 @@ import io.github.hectorvent.floci.core.common.auth.SessionTokenCheck;
 import io.github.hectorvent.floci.core.common.auth.SigV4AuthorizationHeader;
 import io.github.hectorvent.floci.core.common.auth.SigV4RequestValidator;
 import io.github.hectorvent.floci.core.common.auth.SigV4SignedRequest;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.appsync.graphql.AppSyncTransportException;
 import io.github.hectorvent.floci.services.iam.IamPolicyEvaluator;
 import io.github.hectorvent.floci.services.iam.IamService;
@@ -57,7 +58,6 @@ public class IamAuthValidator {
     private static final String SIGNATURE_MISMATCH = "The request signature we calculated does not match the signature"
             + " you provided. Check your AWS Secret Access Key and signing method. Consult the service documentation"
             + " for details.";
-    private static final String LEGACY_ACCESS_KEY_ID = "test";
     private static final String LEGACY_SECRET_KEY = "test";
     private static final String SECURITY_TOKEN = "X-Amz-Security-Token";
 
@@ -249,7 +249,7 @@ public class IamAuthValidator {
      * unregistered key sign its own requests before this fix.
      */
     private String resolveSecretKey(String accessKeyId) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return LEGACY_SECRET_KEY;
         }
         return iamService.findSecretKey(accessKeyId).orElse(null);
@@ -257,7 +257,7 @@ public class IamAuthValidator {
 
     /** Rejects a session token that does not fit the access key. The local {@code test} key takes any token. */
     private void checkSessionToken(String accessKeyId, Map<String, String> requestHeaders) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return;
         }
         String presented = hasHeader(requestHeaders, SECURITY_TOKEN) ? header(requestHeaders, SECURITY_TOKEN) : null;
@@ -317,7 +317,7 @@ public class IamAuthValidator {
     }
 
     static boolean isEmulatorAllow(String accessKeyId) {
-        return "test".equals(accessKeyId);
+        return LegacyTestCredentials.accepts(accessKeyId);
     }
 
     /**

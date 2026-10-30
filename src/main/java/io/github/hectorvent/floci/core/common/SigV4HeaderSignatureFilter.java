@@ -6,6 +6,7 @@ import io.github.hectorvent.floci.core.common.auth.SigV4AuthorizationHeader;
 import io.github.hectorvent.floci.core.common.auth.SigV4Canonicalization;
 import io.github.hectorvent.floci.core.common.auth.SigV4RequestValidator;
 import io.github.hectorvent.floci.core.common.auth.SigV4aSignature;
+import io.github.hectorvent.floci.security.LegacyTestCredentials;
 import io.github.hectorvent.floci.services.apigateway.ApiGatewayAwsExecuteController;
 import io.github.hectorvent.floci.services.apigateway.ApiGatewayExecuteController;
 import io.github.hectorvent.floci.services.apigateway.ApiGatewayUserRequestController;
@@ -114,7 +115,6 @@ public class SigV4HeaderSignatureFilter implements ContainerRequestFilter {
     private static final Set<Class<?>> UNCATALOGUED_REST_XML = Set.of(S3ControlController.class);
 
     /** The well-known local-dev pair, honoured as every other SigV4 check in Floci honours it. */
-    private static final String LEGACY_ACCESS_KEY_ID = "test";
     private static final String LEGACY_SECRET_KEY = "test";
 
     private static final String MISMATCH_MESSAGE = "The request signature we calculated does not match "
@@ -404,7 +404,7 @@ public class SigV4HeaderSignatureFilter implements ContainerRequestFilter {
     }
 
     private Optional<String> resolveSecretKey(String accessKeyId, String sessionToken) {
-        if (LEGACY_ACCESS_KEY_ID.equals(accessKeyId)) {
+        if (LegacyTestCredentials.accepts(accessKeyId)) {
             return Optional.of(LEGACY_SECRET_KEY);
         }
         return iamService.findSecretKey(accessKeyId, sessionToken);
