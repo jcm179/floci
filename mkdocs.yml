@@ -88,6 +88,7 @@ nav:
     - Multi-Account Isolation: configuration/multi-account.md
     - AWS Partitions: configuration/partitions.md
     - Storage Modes: configuration/storage.md
+    - Secure Mode: configuration/secure-mode.md
     - TLS / HTTPS: configuration/tls.md
     - Initialization Hooks: configuration/initialization-hooks.md
     - Advanced:
