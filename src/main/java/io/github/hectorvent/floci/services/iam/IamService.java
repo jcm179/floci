@@ -723,7 +723,8 @@ public class IamService implements SessionAccountLookup, ResourceProvider, Reset
     private void seedRootAndDeployerCredentials() {
         // Read before deleting: a pre-multi-account store holds the key unprefixed, and the read is
         // what moves it to where delete looks.
-        if (accessKeys.get(LEGACY_DEPLOYER_ACCESS_KEY_ID).isPresent()) {
+        if (accessKeys.get(LEGACY_DEPLOYER_ACCESS_KEY_ID)
+                .filter(key -> DEFAULT_DEPLOYER_USER.equals(key.getUserName())).isPresent()) {
             replaceSeededAccessKey(LEGACY_DEPLOYER_ACCESS_KEY_ID, null);
             LOG.info("Deleted the legacy public floci access key");
         }
