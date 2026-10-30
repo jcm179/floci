@@ -742,6 +742,15 @@ public interface EmulatorConfig {
 
         @WithDefault("false")
         boolean denyUnmappedActions();
+
+        /** Root credentials chosen by the operator. Read at startup by the IAM bootstrap. */
+        RootConfig root();
+
+        interface RootConfig {
+            Optional<String> accessKeyId();
+
+            Optional<String> secretAccessKey();
+        }
     }
 
     interface ServicesConfig {
