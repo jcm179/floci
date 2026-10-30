@@ -93,7 +93,7 @@ class StrictUnmappedActionIntegrationTest {
         .when()
             .put("/" + PUBLIC_BUCKET + "?policy")
         .then()
-            .statusCode(204);
+            .statusCode(200);
         given().filter(root()).body("public body").when().put("/" + PUBLIC_BUCKET + "/readme.txt")
             .then().statusCode(200);
 
