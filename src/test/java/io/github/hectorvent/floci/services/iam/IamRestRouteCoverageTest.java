@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -156,6 +157,55 @@ class IamRestRouteCoverageTest {
                             () -> assertFalse(served.containsValue(resolve(route)), route.toString()))
                     : DynamicTest.dynamicTest("s3control " + operation.getKey(),
                             () -> assertEquals(expected, resolve(route), route.toString())));
+        }
+        return tests.stream();
+    }
+
+    /**
+     * The S3 operations whose route no rule maps by design, so the strict set must not read them as
+     * unmapped. DeleteObjects and a browser-form PostObject are authorized per key by S3Controller.
+     * WriteGetObjectResponse and the bucket metadata configuration are not served: a POST on a bucket
+     * is answered by that controller with its own error. CompleteMultipartUpload is routed by the
+     * {@code uploadId} the model gives it in the request URI's query, which the test route adds.
+     */
+    private static final Set<String> S3_POST_BUCKET_ROUTES_CHECKED_PER_KEY = Set.of(
+            "DeleteObjects", "WriteGetObjectResponse",
+            "CreateBucketMetadataConfiguration", "CreateBucketMetadataTableConfiguration");
+
+    /** The credential scopes whose unmapped actions a signed request is denied for. */
+    private static final Set<String> STRICT_NAMESPACES = Set.of("s3", "kms", "secretsmanager", "iam", "sts");
+
+    /**
+     * Every operation Floci serves for S3 resolves to an action, so strict mode denies none of them.
+     * The Query and JSON services of the strict set (KMS, Secrets Manager, IAM, STS) name their
+     * operation in the request, so each resolves to at least its own name.
+     */
+    @TestFactory
+    Stream<DynamicTest> noOperationOfTheStrictServicesResolvesToNoAction() throws IOException {
+        JsonNode models = load("/aws/rest-routes.json").path("models");
+        List<DynamicTest> tests = new ArrayList<>();
+        Iterator<Map.Entry<String, JsonNode>> operations = models.path("s3").path("operations").fields();
+        while (operations.hasNext()) {
+            Map.Entry<String, JsonNode> operation = operations.next();
+            if (S3_POST_BUCKET_ROUTES_CHECKED_PER_KEY.contains(operation.getKey())) {
+                continue;
+            }
+            String requestUri = operation.getKey().equals("CompleteMultipartUpload")
+                    ? operation.getValue().path("requestUri").asText() + "?uploadId=upload-id"
+                    : operation.getValue().path("requestUri").asText();
+            Route route = new Route("s3", "s3", operation.getKey(),
+                    operation.getValue().path("method").asText(), requestUri);
+            tests.add(DynamicTest.dynamicTest("s3 " + operation.getKey() + " is mapped",
+                    () -> assertNotNull(resolve(route), route.toString())));
+        }
+        JsonNode authorized = load("/aws/iam-authorized-actions.json").path("authorizedActions");
+        for (String namespace : STRICT_NAMESPACES) {
+            Iterator<Map.Entry<String, JsonNode>> entries = authorized.path(namespace).fields();
+            while (entries.hasNext()) {
+                String operation = entries.next().getKey();
+                tests.add(DynamicTest.dynamicTest(namespace + " " + operation + " is named",
+                        () -> assertNotNull(IamAuthorizedActions.actionFor(namespace, operation))));
+            }
         }
         return tests.stream();
     }

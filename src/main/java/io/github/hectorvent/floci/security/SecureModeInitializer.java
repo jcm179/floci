@@ -15,6 +15,7 @@ public class SecureModeInitializer {
 
     public SecureModeInitializer(EmulatorConfig config, ServiceConfigAccess serviceConfigAccess) {
         LegacyTestCredentials.configure(config.auth().allowTestCredentials());
+        StrictModePolicy.configure(config.auth().denyUnmappedActions());
         if (config.services().iam().enforcementEnabled()
                 && "memory".equalsIgnoreCase(serviceConfigAccess.storageMode("iam"))) {
             LOG.warn("IAM enforcement is on with memory storage: the root credentials are lost on every"

@@ -3,6 +3,7 @@ package io.github.hectorvent.floci.core.common;
 import com.fasterxml.jackson.databind.JsonNode;
 import io.github.hectorvent.floci.config.EmulatorConfig;
 import io.github.hectorvent.floci.security.LegacyTestCredentials;
+import io.github.hectorvent.floci.security.StrictModePolicy;
 import io.github.hectorvent.floci.services.cloudtrail.CloudTrailService;
 import io.github.hectorvent.floci.services.iam.AccessDeniedMessages;
 import io.github.hectorvent.floci.services.iam.AccessDeniedMessages.PolicyType;
@@ -348,6 +349,10 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
                 return;
             }
             if (!isRpcCall(ctx)) {
+                if (deniesStrictlyUnmappedRoute(credentialScope, ctx)) {
+                    ctx.abortWith(accessDeniedForRequest("Unknown", credentialScope, ctx));
+                    return;
+                }
                 return; // REST route no rule maps → ALLOW, as an unsigned REST request is
             }
         }
@@ -383,6 +388,10 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
             return;
         }
         if (action == null) {
+            if (StrictModePolicy.deniesUnmapped(credentialScope)) {
+                ctx.abortWith(accessDeniedForRequest("Unknown", credentialScope, ctx));
+                return;
+            }
             return; // unknown action → ALLOW for ordinary credentials (permissive)
         }
         if ("sts:GetCallerIdentity".equals(action)) {
@@ -896,6 +905,24 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
      */
     private static boolean claimsSigV4(String auth) {
         return auth.startsWith("AWS4-") || auth.contains("Credential=");
+    }
+
+    /**
+     * Whether a signed REST request no rule maps is denied by the strict set. A CORS preflight is
+     * never denied, and neither is a POST on a single path segment of S3: DeleteObjects and a
+     * browser-form PostObject are authorized per key by S3Controller, which also answers any other
+     * POST there with its own error, so no action maps the route by design.
+     */
+    private static boolean deniesStrictlyUnmappedRoute(String credentialScope, ContainerRequestContext ctx) {
+        if (!StrictModePolicy.deniesUnmapped(credentialScope) || "OPTIONS".equalsIgnoreCase(ctx.getMethod())) {
+            return false;
+        }
+        if ("s3".equals(credentialScope) && "POST".equalsIgnoreCase(ctx.getMethod())) {
+            String path = ctx.getUriInfo().getPath();
+            String segments = path == null ? "" : path.replaceAll("^/+|/+$", "");
+            return segments.contains("/");
+        }
+        return true;
     }
 
     /**
