@@ -697,22 +697,35 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
             replaceSeededAccessKey(LEGACY_DEPLOYER_ACCESS_KEY_ID, null);
             LOG.info("Deleted the legacy public floci access key");
         }
+        if (users.get(ROOT_PRINCIPAL_MARKER).isPresent()) {
+            LOG.warnv("An IAM user is named {0}; no root access key is honoured until that user is deleted",
+                    ROOT_PRINCIPAL_MARKER);
+        }
         List<AccessKey> storedRoots = userAccessKeys(ROOT_PRINCIPAL_MARKER);
+        Optional<KeyPair> storedRoot = Optional.empty();
+        if (storedRoots.size() == 1) {
+            storedRoot = Optional.of(new KeyPair(storedRoots.getFirst().getAccessKeyId(),
+                    storedRoots.getFirst().getSecretAccessKey()));
+        } else if (storedRoots.size() > 1) {
+            LOG.warnv("{0} root access keys are stored; none is reused and all are replaced", storedRoots.size());
+        }
+        Optional<String> envAccessKeyId = rootSetting("floci.auth.root.access-key-id");
+        Optional<String> envSecretAccessKey = rootSetting("floci.auth.root.secret-access-key");
         Optional<KeyPair> storedDeployer = userAccessKeys(DEFAULT_DEPLOYER_USER).stream()
                 .filter(key -> "Active".equals(key.getStatus()))
                 .min(Comparator.comparing(AccessKey::getAccessKeyId))
                 .map(key -> new KeyPair(key.getAccessKeyId(), key.getSecretAccessKey()));
         RootCredentialBootstrap.Outcome outcome = RootCredentialBootstrap.resolve(
-                rootSetting("floci.auth.root.access-key-id"),
-                rootSetting("floci.auth.root.secret-access-key"),
-                storedRoots.stream().findFirst()
-                        .map(key -> new KeyPair(key.getAccessKeyId(), key.getSecretAccessKey())),
-                storedDeployer,
+                envAccessKeyId, envSecretAccessKey, storedRoot, storedDeployer,
                 new CredentialGenerator(new SecureRandom()));
 
         KeyPair root = outcome.root();
+        // A root given by environment is the recovery path, so it is stored Active even when the
+        // same pair is stored deactivated.
+        boolean fromEnvironment = RootCredentialBootstrap.environmentProvided(envAccessKeyId, envSecretAccessKey);
         boolean rootHeld = storedRoots.stream().anyMatch(key -> key.getAccessKeyId().equals(root.accessKeyId())
-                && key.getSecretAccessKey().equals(root.secretAccessKey()));
+                && key.getSecretAccessKey().equals(root.secretAccessKey())
+                && (!fromEnvironment || "Active".equals(key.getStatus())));
         for (AccessKey stale : storedRoots) {
             if (!stale.getAccessKeyId().equals(root.accessKeyId())) {
                 replaceSeededAccessKey(stale.getAccessKeyId(), null);
@@ -721,6 +734,9 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         if (!rootHeld) {
             replaceSeededAccessKey(null,
                     new AccessKey(root.accessKeyId(), root.secretAccessKey(), ROOT_PRINCIPAL_MARKER));
+            if (fromEnvironment) {
+                LOG.info("Stored the active root access key given by FLOCI_ROOT_ACCESS_KEY_ID");
+            }
         }
         if (outcome.rootGenerated()) {
             LOG.infov("Generated root credentials for account {0}: access key id {1}, secret access key {2}."
@@ -751,9 +767,30 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
             return false;
         }
         return accessKeys.get(accessKeyId)
-                .filter(key -> ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .filter(this::isRootKey)
                 .filter(key -> "Active".equals(key.getStatus()))
                 .isPresent();
+    }
+
+    /**
+     * Whether a stored key is the account root's: it carries the marker, it is read in the default
+     * account, and no IAM user of that name exists to claim it.
+     */
+    private boolean isRootKey(AccessKey key) {
+        if (!ROOT_PRINCIPAL_MARKER.equals(key.getUserName())) {
+            return false;
+        }
+        boolean defaultAccount = !(accessKeys instanceof AccountAwareStorageBackend<AccessKey> aware)
+                || regionResolver.getDefaultAccountId().equals(aware.accountId());
+        return defaultAccount && users.get(ROOT_PRINCIPAL_MARKER).isEmpty();
+    }
+
+    /** The root marker is no IAM user name: it fails {@code userNameType}'s pattern, as AWS answers. */
+    private static void rejectRootMarker(String userName, String member) {
+        if (ROOT_PRINCIPAL_MARKER.equals(userName)) {
+            throw IamValidationErrors.validationError(member, userName,
+                    "Member must satisfy regular expression pattern: [\\w+=,.@-]+");
+        }
     }
 
     /**
@@ -872,6 +909,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
     }
 
     public IamUser createUser(String userName, String path, String permissionsBoundaryArn) {
+        rejectRootMarker(userName, "userName");
         if (permissionsBoundaryArn != null) {
             requirePolicy(permissionsBoundaryArn); // validate before anything is created
         }
@@ -1019,6 +1057,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
             IamUser user = getUser(userName);
             requireSameUser(user, userName, expectedUserId);
             if (newUserName != null && !newUserName.equals(userName)) {
+                rejectRootMarker(newUserName, "newUserName");
                 boolean nameTaken = resourcesInCurrentAccount(users)
                         .filter(existing -> !existing.getUserId().equals(user.getUserId()))
                         .anyMatch(existing -> existing.getUserName().equalsIgnoreCase(newUserName));
@@ -2493,6 +2532,10 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
             // Confirmed under the lock, not before it, the way UploadSigningCertificate confirms
             // its own: DeleteUser checks for access keys holding this same lock, so the two cannot
             // interleave into a key owned by a user that no longer exists.
+            if (ROOT_PRINCIPAL_MARKER.equals(userName)) {
+                throw new AwsException("NoSuchEntity",
+                        "The user with name " + userName + " cannot be found.", 404);
+            }
             getUser(userName);
             long existingCount = userAccessKeys(userName).size();
             if (existingCount >= 2) {
@@ -2545,7 +2588,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         AccessKey key = accessKeys.get(accessKeyId)
                 .orElseThrow(() -> new AwsException("NoSuchEntity",
                         "Access key " + accessKeyId + " not found.", 404));
-        if (!key.getUserName().equals(userName)) {
+        if (ROOT_PRINCIPAL_MARKER.equals(userName) || !key.getUserName().equals(userName)) {
             throw new AwsException("NoSuchEntity",
                     "Access key " + accessKeyId + " does not belong to user " + userName + ".", 404);
         }
@@ -5410,7 +5453,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         Optional<AccessKey> akOpt = accessKeys.get(accessKeyId);
         if (akOpt.isPresent()) {
             String userName = akOpt.get().getUserName();
-            if (ROOT_PRINCIPAL_MARKER.equals(userName)) {
+            if (isRootKey(akOpt.get())) {
                 return null; // the account root: no IAM identity, so enforcement treats it as root
             }
             List<String> identityPolicies = userIdentityPolicies(userName);
@@ -5690,7 +5733,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
 
         Optional<AccessKey> akOpt = accessKeys.get(accessKeyId);
         if (akOpt.isPresent()) {
-            if (ROOT_PRINCIPAL_MARKER.equals(akOpt.get().getUserName())) {
+            if (isRootKey(akOpt.get())) {
                 String accountId = regionResolver.getDefaultAccountId();
                 return Optional.of(CallerArns.accountRoot(
                         regionResolver.buildGlobalArn("iam", accountId, "root"), accountId));

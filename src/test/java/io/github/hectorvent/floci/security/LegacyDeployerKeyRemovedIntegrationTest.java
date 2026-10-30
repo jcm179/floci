@@ -1,6 +1,7 @@
 package io.github.hectorvent.floci.security;
 
 import io.github.hectorvent.floci.services.iam.IamService;
+import io.github.hectorvent.floci.services.iam.model.AccessKey;
 import io.github.hectorvent.floci.testing.RestAssuredJsonUtils;
 import io.github.hectorvent.floci.testutil.AwsRequestSigner;
 import io.quarkus.test.junit.QuarkusTest;
@@ -11,9 +12,14 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static io.restassured.RestAssured.given;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** A persistent store from an earlier version still holds {@code floci/floci}; after boot it signs nothing. */
+/**
+ * A persistent store from an earlier boot still holds {@code floci/floci}, a stale root and the
+ * environment's root pair deactivated. After boot {@code floci/floci} signs nothing, the stale root
+ * is gone, and the environment's root is active again: the recovery path the environment gives.
+ */
 @QuarkusTest
 @TestProfile(LegacyDeployerKeyStoreProfile.class)
 class LegacyDeployerKeyRemovedIntegrationTest {
@@ -36,6 +42,15 @@ class LegacyDeployerKeyRemovedIntegrationTest {
     @Test
     void theStoredLegacyKeyIsDeletedAtBoot() {
         assertTrue(iamService.findAccessKey("floci").isEmpty());
+    }
+
+    @Test
+    void theEnvironmentRootReplacesTheStaleRootAndIsActiveAgain() {
+        assertTrue(iamService.findAccessKey(LegacyDeployerKeyStoreProfile.STALE_ROOT_ACCESS_KEY_ID).isEmpty());
+        AccessKey root = iamService.findAccessKey(RootByEnvProfile.ROOT_ACCESS_KEY_ID).orElseThrow();
+        assertEquals("Active", root.getStatus());
+        assertEquals(IamService.ROOT_PRINCIPAL_MARKER, root.getUserName());
+        assertTrue(iamService.isRootAccessKey(RootByEnvProfile.ROOT_ACCESS_KEY_ID));
     }
 
     @Test

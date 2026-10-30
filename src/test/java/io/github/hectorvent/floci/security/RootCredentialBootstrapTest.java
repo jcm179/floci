@@ -97,4 +97,12 @@ class RootCredentialBootstrapTest {
         assertEquals(STORED_DEPLOYER, stored.deployer());
         assertFalse(stored.deployerGenerated());
     }
+
+    @Test
+    void environmentProvidedOnlyWhenBothValuesAreSetAndNotBlank() {
+        assertTrue(RootCredentialBootstrap.environmentProvided(Optional.of("AKIAFROMENVIRONMENT1"), Optional.of("s")));
+        assertFalse(RootCredentialBootstrap.environmentProvided(Optional.of("AKIAFROMENVIRONMENT1"), Optional.empty()));
+        assertFalse(RootCredentialBootstrap.environmentProvided(Optional.of(" "), Optional.of("s")));
+        assertFalse(RootCredentialBootstrap.environmentProvided(Optional.empty(), Optional.empty()));
+    }
 }

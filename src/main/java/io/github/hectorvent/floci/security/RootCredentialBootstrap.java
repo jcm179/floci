@@ -57,6 +57,15 @@ public final class RootCredentialBootstrap {
         return new Outcome(root, rootGenerated, deployer, deployerGenerated);
     }
 
+    /**
+     * Whether the environment gives the root: both values set and not blank. A root given this way
+     * is the recovery path, so IAM stores it Active even over the same pair stored deactivated.
+     * Only one value set is answered by {@link #resolve} as a configuration error.
+     */
+    public static boolean environmentProvided(Optional<String> envAccessKeyId, Optional<String> envSecretAccessKey) {
+        return nonBlank(envAccessKeyId).isPresent() && nonBlank(envSecretAccessKey).isPresent();
+    }
+
     private static KeyPair generate(CredentialGenerator generator) {
         return new KeyPair(generator.newAccessKeyId(), generator.newSecretAccessKey());
     }

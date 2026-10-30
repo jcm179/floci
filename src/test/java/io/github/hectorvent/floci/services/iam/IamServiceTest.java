@@ -2862,6 +2862,94 @@ class IamServiceTest {
     }
 
     @Test
+    void theRootMarkerIsNoUserName() {
+        AwsException create = assertThrows(AwsException.class,
+                () -> iamService.createUser(IamService.ROOT_PRINCIPAL_MARKER, "/"));
+        assertEquals("ValidationError", create.getErrorCode());
+
+        iamService.createUser("renamed", "/");
+        AwsException rename = assertThrows(AwsException.class,
+                () -> iamService.updateUser("renamed", IamService.ROOT_PRINCIPAL_MARKER, null));
+        assertEquals("ValidationError", rename.getErrorCode());
+        assertEquals("renamed", iamService.getUser("renamed").getUserName());
+    }
+
+    @Test
+    void theRootKeyCannotBeReachedThroughItsMarker() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(false, accessKeys);
+        iamService.seedDefaults();
+        String rootKey = accessKeys.scan(k -> true).stream()
+                .filter(key -> IamService.ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .findFirst().orElseThrow().getAccessKeyId();
+
+        assertEquals("NoSuchEntity", assertThrows(AwsException.class,
+                () -> iamService.createAccessKey(IamService.ROOT_PRINCIPAL_MARKER)).getErrorCode());
+        assertEquals("NoSuchEntity", assertThrows(AwsException.class,
+                () -> iamService.updateAccessKey(IamService.ROOT_PRINCIPAL_MARKER, rootKey, "Inactive")).getErrorCode());
+        assertEquals("NoSuchEntity", assertThrows(AwsException.class,
+                () -> iamService.deleteAccessKey(IamService.ROOT_PRINCIPAL_MARKER, rootKey)).getErrorCode());
+        assertTrue(iamService.isRootAccessKey(rootKey));
+    }
+
+    @Test
+    void aUserNamedLikeTheMarkerDoesNotMakeItsKeyTheRoot() {
+        InMemoryStorage<String, IamUser> users = new InMemoryStorage<>();
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        IamService service = new IamService(users, new InMemoryStorage<>(), new InMemoryStorage<>(),
+                new InMemoryStorage<>(), accessKeys, new InMemoryStorage<>(), new InMemoryStorage<>(),
+                new RegionResolver("us-east-1", "000000000000"), false);
+        String userArn = "arn:aws:iam::000000000000:user/" + IamService.ROOT_PRINCIPAL_MARKER;
+        users.put(IamService.ROOT_PRINCIPAL_MARKER,
+                new IamUser("AIDAMARKERUSER000001", IamService.ROOT_PRINCIPAL_MARKER, "/", userArn));
+        accessKeys.put("AKIAMARKERUSERKEY001",
+                new AccessKey("AKIAMARKERUSERKEY001", "secret", IamService.ROOT_PRINCIPAL_MARKER));
+
+        assertFalse(service.isRootAccessKey("AKIAMARKERUSERKEY001"));
+        assertNotNull(service.resolveCallerContext("AKIAMARKERUSERKEY001"));
+        assertEquals(userArn, service.resolveCallerArn("AKIAMARKERUSERKEY001").orElseThrow());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aMarkerKeyInAnotherAccountIsNotTheRoot() {
+        AtomicReference<String> caller = new AtomicReference<>("111122223333");
+        RequestContext context = Mockito.mock(RequestContext.class);
+        Mockito.when(context.getAccountId()).thenAnswer(inv -> caller.get());
+        Instance<RequestContext> contexts = Mockito.mock(Instance.class);
+        Mockito.when(contexts.get()).thenReturn(context);
+        AccountAwareStorageBackend<AccessKey> keys =
+                new AccountAwareStorageBackend<>(new InMemoryStorage<>(), contexts, "000000000000");
+        keys.putForAccount("111122223333", "AKIAFOREIGNMARKER001",
+                new AccessKey("AKIAFOREIGNMARKER001", "secret", IamService.ROOT_PRINCIPAL_MARKER));
+        IamService service = iamService(false, keys);
+
+        assertFalse(service.isRootAccessKey("AKIAFOREIGNMARKER001"));
+        assertTrue(service.resolveCallerArns("AKIAFOREIGNMARKER001").isEmpty());
+    }
+
+    @Test
+    void severalStoredRootsAreAllReplacedByOneNewRoot() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        accessKeys.put("AKIAFIRSTROOT0000001",
+                new AccessKey("AKIAFIRSTROOT0000001", "first", IamService.ROOT_PRINCIPAL_MARKER));
+        accessKeys.put("AKIASECONDROOT000001",
+                new AccessKey("AKIASECONDROOT000001", "second", IamService.ROOT_PRINCIPAL_MARKER));
+        iamService = iamService(false, accessKeys);
+
+        iamService.seedDefaults();
+
+        List<String> roots = accessKeys.scan(k -> true).stream()
+                .filter(key -> IamService.ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .map(AccessKey::getAccessKeyId)
+                .toList();
+        assertEquals(1, roots.size());
+        assertFalse(roots.contains("AKIAFIRSTROOT0000001"));
+        assertFalse(roots.contains("AKIASECONDROOT000001"));
+        assertTrue(iamService.isRootAccessKey(roots.getFirst()));
+    }
+
+    @Test
     void replaceSeededAccessKeyDeletesTheOldKeyAndStoresTheNewOne() {
         InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
         iamService = iamService(false, accessKeys);
