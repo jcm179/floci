@@ -8,6 +8,8 @@ import io.github.hectorvent.floci.core.common.docker.ContainerLifecycleManager.C
 import io.github.hectorvent.floci.core.common.docker.ContainerLifecycleManager.EndpointInfo;
 import io.github.hectorvent.floci.core.common.docker.ContainerSpec;
 import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
+import io.github.hectorvent.floci.security.KeyPair;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.quarkus.runtime.ShutdownEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
@@ -114,10 +116,11 @@ public class FlociDuckManager {
         String containerName = ContainerStorageHelper.dockerName(config, CONTAINER_NAME);
         ContainerStorageHelper.removeStaleContainer(config, lifecycleManager, containerName);
 
+        Optional<KeyPair> internal = LaunchedCredentials.internalPair();
         ContainerSpec spec = containerBuilder.newContainer(image)
                 .withName(containerName)
-                .withEnv("FLOCI_DUCK_S3_ACCESS_KEY", "test")
-                .withEnv("FLOCI_DUCK_S3_SECRET_KEY", "test")
+                .withEnv("FLOCI_DUCK_S3_ACCESS_KEY", internal.map(KeyPair::accessKeyId).orElse("test"))
+                .withEnv("FLOCI_DUCK_S3_SECRET_KEY", internal.map(KeyPair::secretAccessKey).orElse("test"))
                 .withEnv("FLOCI_DUCK_S3_REGION", config.defaultRegion())
                 .withDynamicPort(DUCK_PORT)
                 .withDockerNetwork(config.services().dockerNetwork())

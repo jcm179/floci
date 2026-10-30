@@ -11,6 +11,7 @@ import io.github.hectorvent.floci.core.common.docker.ContainerLifecycleManager;
 import io.github.hectorvent.floci.core.common.docker.ContainerLogStreamer;
 import io.github.hectorvent.floci.core.common.docker.ContainerSpec;
 import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.batch.model.BatchJob;
 import io.github.hectorvent.floci.services.batch.model.BatchKeyValue;
 import io.github.hectorvent.floci.services.batch.model.BatchNodeExecution;
@@ -229,9 +230,7 @@ public class BatchDockerRunner implements ContainerTeardown {
         List<String> env = new ArrayList<>();
         env.add("AWS_REGION=" + job.getRegion());
         env.add("AWS_DEFAULT_REGION=" + job.getRegion());
-        env.add("AWS_ACCESS_KEY_ID=test");
-        env.add("AWS_SECRET_ACCESS_KEY=test");
-        env.add("AWS_SESSION_TOKEN=test");
+        env.addAll(LaunchedCredentials.entries("test", "test", "test"));
         String hostname = resolveEndpointHostname();
         String endpoint = "http://" + hostname + ":" + config.port();
         env.add("FLOCI_ENDPOINT=" + endpoint);

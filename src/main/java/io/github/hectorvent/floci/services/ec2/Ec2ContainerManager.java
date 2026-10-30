@@ -24,6 +24,7 @@ import io.github.hectorvent.floci.core.common.docker.DockerHostResolver;
 import io.github.hectorvent.floci.core.common.docker.PortAllocator;
 import io.github.hectorvent.floci.core.common.docker.RetryingTarCopier;
 import io.github.hectorvent.floci.core.common.docker.UserDataPipeline;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.ec2.Ec2InstanceTypeCatalog.CatalogInstanceType;
 import io.github.hectorvent.floci.services.ec2.model.GroupIdentifier;
 import io.github.hectorvent.floci.services.ec2.model.Instance;
@@ -1684,8 +1685,7 @@ public class Ec2ContainerManager {
                 "AWS_DEFAULT_REGION=" + region,
                 "AWS_REGION=" + region));
         if (!hasInstanceProfile) {
-            environment.addAll(List.of("AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
-                    "AWS_SESSION_TOKEN=test-session-token"));
+            environment.addAll(LaunchedCredentials.entries("test", "test", "test-session-token"));
         }
         return environment;
     }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.hectorvent.floci.config.EmulatorConfig;
 import io.github.hectorvent.floci.core.common.docker.ContainerReachableEndpoint;
+import io.github.hectorvent.floci.security.KeyPair;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * HTTP client for the floci-duck sidecar.
@@ -126,8 +129,14 @@ public class FlociDuckClient {
         // A 12-digit access key flows through AccountResolver and selects the
         // matching account partition for any S3 read/write the SQL performs.
         // Anything else falls back to the configured default account.
-        body.put("s3_access_key", accessKeyId == null || accessKeyId.isEmpty() ? "test" : accessKeyId);
-        body.put("s3_secret_key", "test");
+        Optional<KeyPair> internal = LaunchedCredentials.internalPair();
+        if (internal.isPresent()) {
+            body.put("s3_access_key", internal.get().accessKeyId());
+            body.put("s3_secret_key", internal.get().secretAccessKey());
+        } else {
+            body.put("s3_access_key", accessKeyId == null || accessKeyId.isEmpty() ? "test" : accessKeyId);
+            body.put("s3_secret_key", "test");
+        }
         body.put("s3_url_style", "path");
         return body;
     }

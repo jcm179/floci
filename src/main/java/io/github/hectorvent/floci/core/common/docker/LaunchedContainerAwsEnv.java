@@ -1,5 +1,7 @@
 package io.github.hectorvent.floci.core.common.docker;
 
+import io.github.hectorvent.floci.security.KeyPair;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.iam.model.SessionCreds;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -125,6 +127,7 @@ public class LaunchedContainerAwsEnv {
     public List<String> sdkBaselineEnv(String region, Optional<String> awsConfigMountDir,
                                        String flociEndpoint, Optional<SessionCreds> injectedCredentials,
                                        String ownerAccountId) {
+        Optional<KeyPair> internalPair = LaunchedCredentials.internalPair();
         ArrayList<String> env = new ArrayList<>();
         env.add("AWS_DEFAULT_REGION=" + region);
         env.add("AWS_REGION=" + region);
@@ -139,6 +142,11 @@ public class LaunchedContainerAwsEnv {
             env.add("AWS_ACCESS_KEY_ID=" + credentials.accessKeyId());
             env.add("AWS_SECRET_ACCESS_KEY=" + credentials.secretAccessKey());
             env.add("AWS_SESSION_TOKEN=" + credentials.sessionToken());
+        } else if (internalPair.isPresent()) {
+            // Secure mode: the placeholder pair no longer signs, so the launched workload carries
+            // the internal pair, without a session token.
+            env.add("AWS_ACCESS_KEY_ID=" + internalPair.get().accessKeyId());
+            env.add("AWS_SECRET_ACCESS_KEY=" + internalPair.get().secretAccessKey());
         } else {
             // The launched container is a distinct principal from the Floci server process, so
             // its identity comes from the workload's owning account when we know it; Floci's own

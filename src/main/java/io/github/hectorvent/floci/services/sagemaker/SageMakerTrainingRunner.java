@@ -16,6 +16,7 @@ import io.github.hectorvent.floci.core.common.docker.ContainerLogStreamer;
 import io.github.hectorvent.floci.core.common.docker.ContainerSpec;
 import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
 import io.github.hectorvent.floci.core.common.docker.RetryingTarCopier;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.s3.S3Service;
 import io.github.hectorvent.floci.services.s3.model.S3Object;
 import io.github.hectorvent.floci.services.sagemaker.model.SageMakerEntities.TrainingJobResource;
@@ -212,9 +213,7 @@ public class SageMakerTrainingRunner implements ContainerTeardown, Resettable {
         env.add("SAGEMAKER_REGION=" + job.region);
         env.add("AWS_REGION=" + job.region);
         env.add("AWS_DEFAULT_REGION=" + job.region);
-        env.add("AWS_ACCESS_KEY_ID=test");
-        env.add("AWS_SECRET_ACCESS_KEY=test");
-        env.add("AWS_SESSION_TOKEN=test");
+        env.addAll(LaunchedCredentials.entries("test", "test", "test"));
         String endpoint = "http://" + resolveEndpointHostname() + ":" + config.port();
         env.add("AWS_ENDPOINT_URL=" + endpoint);
         env.add("FLOCI_ENDPOINT=" + endpoint);

@@ -18,6 +18,7 @@ import io.github.hectorvent.floci.core.common.docker.ContainerReachableEndpoint;
 import io.github.hectorvent.floci.core.common.docker.ContainerSpec;
 import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
 import io.github.hectorvent.floci.core.common.docker.RetryingTarCopier;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.codebuild.BuildspecParser.ParsedArtifacts;
 import io.github.hectorvent.floci.services.codebuild.BuildspecParser.ParsedBuildspec;
 import io.github.hectorvent.floci.services.codebuild.model.Build;
@@ -453,8 +454,7 @@ public class CodeBuildRunner implements ContainerTeardown {
         env.put("CODEBUILD_LOG_PATH", logStream);
         env.put("AWS_DEFAULT_REGION", region);
         env.put("AWS_REGION", region);
-        env.put("AWS_ACCESS_KEY_ID", "test");
-        env.put("AWS_SECRET_ACCESS_KEY", "test");
+        env.putAll(LaunchedCredentials.variables("test", "test", null));
         env.put("AWS_ENDPOINT_URL", resolveEndpointUrl());
 
         env.putAll(buildspec.envVariables());

@@ -2,6 +2,7 @@ package io.github.hectorvent.floci.lifecycle.inithook;
 
 import io.github.hectorvent.floci.config.EmulatorConfig;
 import io.github.hectorvent.floci.config.LocalStackParity;
+import io.github.hectorvent.floci.security.LaunchedCredentials;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -44,6 +45,7 @@ public class HookScriptExecutor {
         // The entrypoint script used to export the translated LocalStack settings as FLOCI_*
         // variables, and hooks read them; the translation now lives in Java, so pass it on.
         LocalStackParity.environment(System.getenv()).forEach(builder.environment()::putIfAbsent);
+        LaunchedCredentials.applyTo(builder.environment());
         final Process process = builder.start();
         run(process, scriptFileName);
     }
