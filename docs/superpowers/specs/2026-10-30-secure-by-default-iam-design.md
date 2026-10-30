@@ -59,6 +59,7 @@ Ganchos en código existente, todos pequeños:
 - `IamEnforcementFilter.filter()`: la rama `"test".equals(akid)` pasa a depender de un flag `floci.auth.allow-test-credentials`.
 - `IamEnforcementFilter`, el segundo uso de `"test"` en el método de autorización de recursos adicionales: mismo flag.
 - La rama "REST route no rule maps → ALLOW" y las acciones sin resolver: consultan `StrictModePolicy`.
+- La clave `test` se compara en unos once sitios (los dos del filtro de enforcement, los verificadores de firma, S3, API Gateway, Lambda Web, CloudTrail y AppSync). Cada uno pasa a consultar `LegacyTestCredentials.accepts(...)`: una línea por sitio. Esto es más que los dos que mencionaba antes; se descubrió al planificar.
 - `IamService.seedDefaults()`: una llamada a `RootCredentialBootstrap`. Además, `seedDefaultDeployerPrincipal()` deja de usar las constantes `floci/floci` y toma el par que le da el bootstrap.
 - Los sitios que hoy inyectan `AWS_ACCESS_KEY_ID=test` en los contenedores que Floci lanza (EC2, SageMaker, ECS) y en los init hooks toman el par interno del proveedor. Es un cambio de una línea en cada sitio.
 
