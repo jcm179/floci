@@ -29,6 +29,10 @@ import io.github.hectorvent.floci.core.storage.AccountAwareStorageBackend;
 import io.github.hectorvent.floci.core.storage.InMemoryStorage;
 import io.github.hectorvent.floci.core.storage.StorageBackend;
 import io.github.hectorvent.floci.core.storage.StorageFactory;
+import io.github.hectorvent.floci.security.CredentialGenerator;
+import io.github.hectorvent.floci.security.InternalCredentials;
+import io.github.hectorvent.floci.security.KeyPair;
+import io.github.hectorvent.floci.security.RootCredentialBootstrap;
 import io.github.hectorvent.floci.services.iam.model.AccessKey;
 import io.github.hectorvent.floci.services.iam.model.AccountPasswordPolicy;
 import io.github.hectorvent.floci.services.iam.model.CallerContext;
@@ -53,6 +57,7 @@ import io.quarkus.runtime.Startup;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.ConfigProvider;
 import org.jboss.logging.Logger;
 
 import java.lang.ref.WeakReference;
@@ -145,8 +150,10 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
                     + "{\"Effect\":\"Allow\",\"Action\":\"iam:GetAccountPasswordPolicy\","
                     + "\"Resource\":\"*\"}]}";
     private static final String DEFAULT_DEPLOYER_USER = "floci-deployer";
-    private static final String DEFAULT_DEPLOYER_ACCESS_KEY_ID = "floci";
-    private static final String DEFAULT_DEPLOYER_SECRET_ACCESS_KEY = "floci";
+    /** The public {@code floci/floci} pair earlier versions seeded; deleted from the store at boot. */
+    private static final String LEGACY_DEPLOYER_ACCESS_KEY_ID = "floci";
+    /** The {@code userName} of the account root's access key, which no IAM user stands behind. */
+    public static final String ROOT_PRINCIPAL_MARKER = "<root>";
     private static final String ACCOUNT_ALIAS_KEY = "account-alias";
     /** As AWS documents it: no leading or trailing dash, and no two dashes in a row. */
     private static final Pattern ACCOUNT_ALIAS_PATTERN =
@@ -674,10 +681,94 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
     @PostConstruct
     void seedDefaults() {
         seedAwsManagedPolicies();
-        if (seedDeployerPrincipal) {
-            seedDefaultDeployerPrincipal();
-        }
+        seedRootAndDeployerCredentials();
         seedConfiguredAccountAlias();
+    }
+
+    /**
+     * Holds the account root's key pair and the internal deployer's, as
+     * {@link RootCredentialBootstrap#resolve} decides them, and deletes the legacy public
+     * {@code floci} key. The deployer's secret is never logged; the root's only when generated.
+     */
+    private void seedRootAndDeployerCredentials() {
+        // Read before deleting: a pre-multi-account store holds the key unprefixed, and the read is
+        // what moves it to where delete looks.
+        if (accessKeys.get(LEGACY_DEPLOYER_ACCESS_KEY_ID).isPresent()) {
+            replaceSeededAccessKey(LEGACY_DEPLOYER_ACCESS_KEY_ID, null);
+            LOG.info("Deleted the legacy public floci access key");
+        }
+        List<AccessKey> storedRoots = userAccessKeys(ROOT_PRINCIPAL_MARKER);
+        Optional<KeyPair> storedDeployer = userAccessKeys(DEFAULT_DEPLOYER_USER).stream()
+                .filter(key -> "Active".equals(key.getStatus()))
+                .min(Comparator.comparing(AccessKey::getAccessKeyId))
+                .map(key -> new KeyPair(key.getAccessKeyId(), key.getSecretAccessKey()));
+        RootCredentialBootstrap.Outcome outcome = RootCredentialBootstrap.resolve(
+                rootSetting("floci.auth.root.access-key-id"),
+                rootSetting("floci.auth.root.secret-access-key"),
+                storedRoots.stream().findFirst()
+                        .map(key -> new KeyPair(key.getAccessKeyId(), key.getSecretAccessKey())),
+                storedDeployer,
+                new CredentialGenerator(new SecureRandom()));
+
+        KeyPair root = outcome.root();
+        boolean rootHeld = storedRoots.stream().anyMatch(key -> key.getAccessKeyId().equals(root.accessKeyId())
+                && key.getSecretAccessKey().equals(root.secretAccessKey()));
+        for (AccessKey stale : storedRoots) {
+            if (!stale.getAccessKeyId().equals(root.accessKeyId())) {
+                replaceSeededAccessKey(stale.getAccessKeyId(), null);
+            }
+        }
+        if (!rootHeld) {
+            replaceSeededAccessKey(null,
+                    new AccessKey(root.accessKeyId(), root.secretAccessKey(), ROOT_PRINCIPAL_MARKER));
+        }
+        if (outcome.rootGenerated()) {
+            LOG.infov("Generated root credentials for account {0}: access key id {1}, secret access key {2}."
+                            + " They are not shown again; set FLOCI_ROOT_ACCESS_KEY_ID and"
+                            + " FLOCI_ROOT_SECRET_ACCESS_KEY to replace them.",
+                    regionResolver.getDefaultAccountId(), root.accessKeyId(), root.secretAccessKey());
+        }
+
+        if (seedDeployerPrincipal) {
+            seedDefaultDeployerPrincipal(outcome.deployer());
+            InternalCredentials.set(outcome.deployer());
+        } else {
+            InternalCredentials.clear();
+        }
+    }
+
+    /** A {@code floci.auth.root.*} setting, read from the startup configuration. */
+    private static Optional<String> rootSetting(String name) {
+        return ConfigProvider.getConfig().getOptionalValue(name, String.class);
+    }
+
+    /**
+     * True when this access key id is the account root's active key, which no IAM user stands
+     * behind. An inactive one is not, so enforcement refuses it as it refuses any inactive key.
+     */
+    public boolean isRootAccessKey(String accessKeyId) {
+        if (accessKeyId == null || accessKeyId.isBlank()) {
+            return false;
+        }
+        return accessKeys.get(accessKeyId)
+                .filter(key -> ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .filter(key -> "Active".equals(key.getStatus()))
+                .isPresent();
+    }
+
+    /**
+     * Swaps a key IAM seeds for itself: deletes {@code oldAccessKeyId} when given and stores
+     * {@code key} when given. Seeding only; the IAM API never reaches it.
+     */
+    public void replaceSeededAccessKey(String oldAccessKeyId, AccessKey key) {
+        synchronized (accessKeyLock) {
+            if (oldAccessKeyId != null && (key == null || !oldAccessKeyId.equals(key.getAccessKeyId()))) {
+                accessKeys.delete(oldAccessKeyId);
+            }
+            if (key != null) {
+                accessKeys.put(key.getAccessKeyId(), key);
+            }
+        }
     }
 
     private Map<String, IamPolicy> awsManagedPolicies(String partition) {
@@ -747,7 +838,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         }
     }
 
-    private void seedDefaultDeployerPrincipal() {
+    private void seedDefaultDeployerPrincipal(KeyPair pair) {
         String adminPolicyArn = AwsManagedPolicies.arnPrefix(regionResolver.getDefaultPartition())
                 + "/AdministratorAccess";
         IamUser user = users.get(DEFAULT_DEPLOYER_USER)
@@ -763,12 +854,12 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
             user.getAttachedPolicyArns().add(adminPolicyArn);
             users.put(DEFAULT_DEPLOYER_USER, user);
         }
-        if (accessKeys.get(DEFAULT_DEPLOYER_ACCESS_KEY_ID).isEmpty()) {
-            accessKeys.put(DEFAULT_DEPLOYER_ACCESS_KEY_ID, new AccessKey(
-                    DEFAULT_DEPLOYER_ACCESS_KEY_ID,
-                    DEFAULT_DEPLOYER_SECRET_ACCESS_KEY,
+        if (accessKeys.get(pair.accessKeyId()).isEmpty()) {
+            accessKeys.put(pair.accessKeyId(), new AccessKey(
+                    pair.accessKeyId(),
+                    pair.secretAccessKey(),
                     DEFAULT_DEPLOYER_USER));
-            LOG.infov("Seeded default IAM deployer access key: {0}", DEFAULT_DEPLOYER_ACCESS_KEY_ID);
+            LOG.info("Seeded the internal IAM deployer access key");
         }
     }
 
@@ -4586,7 +4677,7 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
 
     /** Whether an access key ID identifies Floci's documented public deployer credential. */
     public boolean isSeededDeployerAccessKey(String accessKeyId) {
-        return DEFAULT_DEPLOYER_ACCESS_KEY_ID.equals(accessKeyId);
+        return LEGACY_DEPLOYER_ACCESS_KEY_ID.equals(accessKeyId);
     }
 
     /**
@@ -5319,6 +5410,9 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         Optional<AccessKey> akOpt = accessKeys.get(accessKeyId);
         if (akOpt.isPresent()) {
             String userName = akOpt.get().getUserName();
+            if (ROOT_PRINCIPAL_MARKER.equals(userName)) {
+                return null; // the account root: no IAM identity, so enforcement treats it as root
+            }
             List<String> identityPolicies = userIdentityPolicies(userName);
             String boundaryDoc = resolveUserBoundaryDocument(userName);
             return new CallerContext(identityPolicies, null, boundaryDoc);
@@ -5596,6 +5690,11 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
 
         Optional<AccessKey> akOpt = accessKeys.get(accessKeyId);
         if (akOpt.isPresent()) {
+            if (ROOT_PRINCIPAL_MARKER.equals(akOpt.get().getUserName())) {
+                String accountId = regionResolver.getDefaultAccountId();
+                return Optional.of(CallerArns.accountRoot(
+                        regionResolver.buildGlobalArn("iam", accountId, "root"), accountId));
+            }
             return users.get(akOpt.get().getUserName()).map(IamService::callerForUser);
         }
 

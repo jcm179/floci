@@ -360,7 +360,7 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
         // The key is checked before the action is used: an API call needs a usable key whatever it
         // asks for, even one that needs no permission, such as GetCallerIdentity. A bare 12-digit
         // account-id key is floci's account-root principal, never an IAM user's key.
-        boolean accountRootKey = akid.equals(accountId);
+        boolean accountRootKey = akid.equals(accountId) || iamService.isRootAccessKey(akid);
         if (!accountRootKey && iamService.isInactiveAccessKey(akid)) {
             LOG.debugv("Rejecting request signed with an inactive access key id {0}", akid);
             ctx.abortWith(unrecognizedClientResponse(credentialScope, ctx));
@@ -1401,7 +1401,7 @@ public class IamEnforcementFilter implements ContainerRequestFilter {
             // policies, and resolveCallerContext would delete an expired session, which would then
             // read as a key that exists nowhere. For a second resource of a request filter() has
             // authorized, the key has already passed these checks.
-            boolean accountRootKey = akid.equals(accountId);
+            boolean accountRootKey = akid.equals(accountId) || iamService.isRootAccessKey(akid);
             if (!accountRootKey && iamService.isInactiveAccessKey(akid)) {
                 throw unrecognizedClientException(credentialScope);
             }

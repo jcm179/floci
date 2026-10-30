@@ -9,6 +9,8 @@ import io.github.hectorvent.floci.core.common.Totp;
 import io.github.hectorvent.floci.core.storage.AccountAwareStorageBackend;
 import io.github.hectorvent.floci.core.storage.InMemoryStorage;
 import io.github.hectorvent.floci.core.storage.StorageBackend;
+import io.github.hectorvent.floci.security.InternalCredentials;
+import io.github.hectorvent.floci.security.KeyPair;
 import io.github.hectorvent.floci.services.iam.model.AccessKey;
 import io.github.hectorvent.floci.services.iam.model.AccountPasswordPolicy;
 import io.github.hectorvent.floci.services.iam.model.CallerContext;
@@ -26,6 +28,7 @@ import io.github.hectorvent.floci.services.iam.model.SessionCredential;
 import io.github.hectorvent.floci.services.iam.model.VirtualMfaDevice;
 import io.github.hectorvent.floci.testing.MutableClock;
 import jakarta.enterprise.inject.Instance;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -61,6 +64,11 @@ class IamServiceTest {
     @BeforeEach
     void setUp() {
         iamService = iamService(false);
+    }
+
+    @AfterEach
+    void clearInternalCredentials() {
+        InternalCredentials.clear();
     }
 
     private static IamService iamService(boolean seedDeployerPrincipal) {
@@ -2765,6 +2773,7 @@ class IamServiceTest {
 
         assertThrows(AwsException.class, () -> iamService.getUser("floci-deployer"));
         assertTrue(iamService.resolveCallerArn("floci").isEmpty());
+        assertTrue(InternalCredentials.current().isEmpty());
     }
 
     @Test
@@ -2775,11 +2784,95 @@ class IamServiceTest {
         IamUser user = iamService.getUser("floci-deployer");
         assertEquals("arn:aws:iam::000000000000:user/floci-deployer", user.getArn());
         assertTrue(user.getAttachedPolicyArns().contains("arn:aws:iam::aws:policy/AdministratorAccess"));
+        KeyPair internal = InternalCredentials.current().orElseThrow();
+        assertTrue(internal.accessKeyId().startsWith("AKIA"));
         assertEquals(
                 "arn:aws:iam::000000000000:user/floci-deployer",
-                iamService.resolveCallerArn("floci").orElseThrow());
-        assertNotNull(iamService.resolveCallerContext("floci"));
+                iamService.resolveCallerArn(internal.accessKeyId()).orElseThrow());
+        assertEquals(internal.secretAccessKey(), iamService.findSecretKey(internal.accessKeyId()).orElseThrow());
+        assertNotNull(iamService.resolveCallerContext(internal.accessKeyId()));
         assertNotNull(iamService.resolvePrincipalContext(user.getArn()));
+        assertTrue(iamService.resolveCallerArn("floci").isEmpty());
+    }
+
+    @Test
+    void seedDefaultsKeepsTheStoredDeployerPairAcrossRestarts() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(true, accessKeys);
+        iamService.seedDefaults();
+        KeyPair first = InternalCredentials.current().orElseThrow();
+
+        iamService = iamService(true, accessKeys);
+        iamService.seedDefaults();
+
+        assertEquals(first, InternalCredentials.current().orElseThrow());
+    }
+
+    @Test
+    void seedDefaultsDeletesTheLegacyFlociKey() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(true, accessKeys);
+        accessKeys.put("floci", new AccessKey("floci", "floci", "floci-deployer"));
+
+        iamService.seedDefaults();
+
+        assertTrue(accessKeys.get("floci").isEmpty());
+        assertTrue(iamService.findSecretKey("floci").isEmpty());
+    }
+
+    @Test
+    void seedDefaultsGeneratesARootKeyThatResolvesAsTheAccountRoot() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(false, accessKeys);
+        iamService.seedDefaults();
+
+        List<AccessKey> roots = accessKeys.scan(k -> true).stream()
+                .filter(key -> IamService.ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .toList();
+        assertEquals(1, roots.size());
+        String rootKey = roots.getFirst().getAccessKeyId();
+        assertTrue(iamService.isRootAccessKey(rootKey));
+        assertNull(iamService.resolveCallerContext(rootKey));
+        IamService.CallerArns arns = iamService.resolveCallerArns(rootKey).orElseThrow();
+        assertEquals("arn:aws:iam::000000000000:root", arns.callerArn());
+        assertEquals(IamService.CallerArns.TYPE_ACCOUNT, arns.principalType());
+        assertEquals("000000000000", arns.userId());
+        assertNull(arns.userName());
+
+        iamService = iamService(false, accessKeys);
+        iamService.seedDefaults();
+
+        assertEquals(List.of(rootKey), accessKeys.scan(k -> true).stream()
+                .filter(key -> IamService.ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .map(AccessKey::getAccessKeyId)
+                .toList());
+    }
+
+    @Test
+    void anInactiveRootKeyIsNotTheRootKey() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(false, accessKeys);
+        AccessKey root = new AccessKey("AKIAINACTIVEROOT0001", "secret", IamService.ROOT_PRINCIPAL_MARKER);
+        root.setStatus("Inactive");
+        accessKeys.put(root.getAccessKeyId(), root);
+
+        assertFalse(iamService.isRootAccessKey(root.getAccessKeyId()));
+        assertFalse(iamService.isRootAccessKey("AKIAUNKNOWNKEY000001"));
+        assertFalse(iamService.isRootAccessKey(null));
+    }
+
+    @Test
+    void replaceSeededAccessKeyDeletesTheOldKeyAndStoresTheNewOne() {
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = iamService(false, accessKeys);
+        accessKeys.put("AKIAOLDROOT000000001",
+                new AccessKey("AKIAOLDROOT000000001", "old", IamService.ROOT_PRINCIPAL_MARKER));
+
+        iamService.replaceSeededAccessKey("AKIAOLDROOT000000001",
+                new AccessKey("AKIANEWROOT000000001", "new", IamService.ROOT_PRINCIPAL_MARKER));
+
+        assertTrue(accessKeys.get("AKIAOLDROOT000000001").isEmpty());
+        assertTrue(iamService.isRootAccessKey("AKIANEWROOT000000001"));
     }
 
     @Test
