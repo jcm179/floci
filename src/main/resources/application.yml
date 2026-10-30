@@ -190,7 +190,7 @@ floci:
   ai-mock-config-file: ${AI_MOCK_CONFIG:}
   storage:
     # Supported modes: memory, persistent, hybrid, wal
-    mode: memory
+    mode: persistent
     persistent-path: ./data
     host-persistent-path: ./data
     prune-volumes-on-delete: false
@@ -320,8 +320,13 @@ floci:
     spoof-aws-endpoints: false                    # FLOCI_DNS_SPOOF_AWS_ENDPOINTS
 
   auth:
-    validate-signatures: false
+    validate-signatures: true
     presign-secret: local-emulator-secret
+    allow-test-credentials: false
+    deny-unmapped-actions: true
+    root:
+      access-key-id: ${FLOCI_ROOT_ACCESS_KEY_ID:}
+      secret-access-key: ${FLOCI_ROOT_SECRET_ACCESS_KEY:}
 
   security:
     # Comma-separated browser origins allowed by the global CORS filter.
@@ -412,7 +417,7 @@ floci:
       endpoint-strategy: floci
     s3:
       enabled: true
-      enforce-auth: false
+      enforce-auth: true
       default-presign-expiry-seconds: 3600
       global-bucket-namespace: false
       lifecycle-sweep-enabled: true          # FLOCI_SERVICES_S3_LIFECYCLE_SWEEP_ENABLED - apply lifecycle expiration rules in the background
@@ -485,8 +490,8 @@ floci:
       enabled: true
     iam:
       enabled: true
-      enforcement-enabled: false
-      seed-deployer-principal: false
+      enforcement-enabled: true
+      seed-deployer-principal: true
       # account-alias: ""  # When set, seeds the account alias at startup so callers can read one
                            # without creating it first. Unset means the account has no alias,
                            # matching AWS. Example: FLOCI_SERVICES_IAM_ACCOUNT_ALIAS=my-account

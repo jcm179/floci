@@ -736,6 +736,12 @@ public interface EmulatorConfig {
 
         @WithDefault("local-emulator-secret")
         String presignSecret();
+
+        @WithDefault("true")
+        boolean allowTestCredentials();
+
+        @WithDefault("false")
+        boolean denyUnmappedActions();
     }
 
     interface ServicesConfig {

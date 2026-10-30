@@ -101,6 +101,8 @@ floci:
   auth:
     validate-signatures: false
     presign-secret: test-secret
+    allow-test-credentials: true
+    deny-unmapped-actions: false
 
   security:
     extra-cors-allowed-origins: ${EXTRA_CORS_ALLOWED_ORIGINS:}
