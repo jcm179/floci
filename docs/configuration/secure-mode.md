@@ -1,8 +1,13 @@
 # Secure Mode
 
-This fork of Floci is secure by default. Every request must carry a valid SigV4 signature, and every
-request is authorized against IAM policies. There is no switch to turn on: the settings of the main
-`application.yml` are already the secure ones.
+This fork of Floci is secure by default. Requests to S3, KMS, Secrets Manager, IAM and STS must carry
+a valid SigV4 signature and are authorized against IAM policies. There is no switch to turn on: the
+settings of the main `application.yml` are already the secure ones.
+
+Coverage is not yet complete in this phase. S3 is covered by `enforce-auth`; KMS, Secrets Manager, IAM
+and STS (JSON and Query protocols) are refused when unsigned. Unsigned REST calls to other services
+(Lambda, API Gateway management, EKS, Route 53 and similar) are still served; covering them is a later
+phase. The `/_floci/*` management endpoints are unauthenticated. See [Limitations](#limitations).
 
 ## What changes compared with upstream Floci
 
@@ -34,7 +39,7 @@ reuses the stored pair on every later start.
 
 - The access key id has 20 characters and starts with `AKIA`. The secret has 40 characters.
 - The pair is written to the log once, at the moment it is generated, in a line that starts with
-  `Generated root credentials for account`. It is not printed again and not written anywhere else.
+  `Generated root credentials for account`. It is not written to the log again (the root is stored in plaintext in the IAM access key store).
 - The root is the account root of the default account (`arn:aws:iam::<account>:root`). It has full
   access and no IAM user behind it. `aws sts get-caller-identity` answers with the root ARN.
 
@@ -93,20 +98,34 @@ Nobody receives it. Floci uses it for the processes it launches itself:
 
 - initialization hooks (scripts in the init directory),
 - containers and runtimes that Floci starts, such as EC2 instances without an instance profile,
-  SageMaker training jobs and endpoints, Batch, CodeBuild, Lambda, the Floci UI and the DuckDB
-  container.
+  SageMaker training jobs and endpoints, Batch, CodeBuild, Lambda and the DuckDB container.
 
-Two consequences to be aware of:
+The Floci web console is not on this list. It is unauthenticated, so in secure mode it receives no
+usable credentials (placeholder values only). To let it call Floci, supply credentials through its
+extra-env setting.
 
-!!! warning "Exposure"
-    The internal pair has `AdministratorAccess` and is placed in the environment of containers that
-    can run code you supply, such as CodeBuild, Batch and SageMaker. Code running there can read it and
-    call Floci as an administrator. Do not run code you do not trust in a secure-mode Floci.
+Three consequences to be aware of:
+
+### Exposure
+
+Workloads launched without a role receive the internal deployer pair with `AdministratorAccess`: EC2
+without an instance profile, ECS, Batch, CodeBuild and SageMaker jobs, and Lambda functions whose
+execution role credentials cannot be resolved. A user who is allowed only to start a task, instance,
+build or job can therefore read administrator keys from the container environment and call Floci as an
+administrator. This is a known limitation of this phase. Do not run code you do not trust in a
+secure-mode Floci, and treat permission to start such workloads as administrator access.
 
 !!! note "Tenancy"
     In secure mode, launched containers and the DuckDB container authenticate as the deployer user
     of the default account. They no longer present the owner account of the resource that started
-    them, so in a multi-account setup their calls are attributed to the default account.
+    them, so in a multi-account setup their calls are attributed to the default account. Queries for
+    a non-default account that go through DuckDB (Redshift Spectrum, CUR) read the default account's
+    buckets, not just the wrong attribution: they return the wrong data.
+
+### Emulator reset
+
+`/_floci/state/reset` and `/nuke` wipe the stores but keep the root key and the deployer user, policy
+and key, so signing keeps working afterwards.
 
 ## Strict mode for unmapped actions
 
@@ -187,5 +206,11 @@ your build.
   similar services (the connection to the database). RDS keeps its existing token-validating proxy.
 - Strict mode covers S3, KMS, Secrets Manager, IAM and STS. Unmapped REST routes of other services
   are still allowed.
+- Not every request must be signed in this phase. Unsigned REST calls to services other than S3, KMS,
+  Secrets Manager, IAM and STS (Lambda, API Gateway management, EKS, Route 53 and similar) are still
+  served; this is a non-goal of the first phase and is left to a later one. The `/_floci/*`
+  management endpoints are unauthenticated.
+- Workloads launched without a role receive the administrator internal pair; see
+  [Exposure](#exposure).
 - Storage is the existing file-based storage (`memory`, `persistent`, `hybrid`, `wal`). The root and
   the internal pair are stored in the IAM access key store in the clear.

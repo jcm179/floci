@@ -4,10 +4,11 @@ import io.github.hectorvent.floci.config.EmulatorConfig;
 import io.github.hectorvent.floci.core.common.ServiceConfigAccess;
 import io.quarkus.runtime.Startup;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.interceptor.Interceptor;
 import org.jboss.logging.Logger;
 
 /** Applies the secure-by-default settings from {@link EmulatorConfig} as the application starts. */
-@Startup
+@Startup(Interceptor.Priority.PLATFORM_BEFORE)
 @ApplicationScoped
 public class SecureModeInitializer {
 

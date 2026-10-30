@@ -84,7 +84,7 @@ This short demo shows the CLI flow: start Floci, export the local AWS environmen
 
 https://github.com/user-attachments/assets/b55714dc-ef36-40ae-a734-cd2cadc288a8
 
-All AWS services are available at `http://localhost:4566`. Any [published AWS region](https://floci.io/floci/configuration/partitions/) works, in every partition. This fork is secure by default: requests must be signed and are authorized by IAM policies. Floci generates the root credentials at first start and logs them once; set `FLOCI_ROOT_ACCESS_KEY_ID` and `FLOCI_ROOT_SECRET_ACCESS_KEY` to choose them. The `test` / `test` pair is rejected. See [Secure Mode](https://floci.io/floci/configuration/secure-mode/).
+All AWS services are available at `http://localhost:4566`. Any [published AWS region](https://floci.io/floci/configuration/partitions/) works, in every partition. This fork is secure by default: requests must be signed and are authorized by IAM policies. Floci generates the root credentials at first start and logs them once; set `FLOCI_ROOT_ACCESS_KEY_ID` and `FLOCI_ROOT_SECRET_ACCESS_KEY` to choose them. The `test` / `test` pair is rejected. See [Secure Mode](docs/configuration/secure-mode.md).
 
 <details>
 <summary>Prefer Docker Compose?</summary>
@@ -110,8 +110,9 @@ Then configure your AWS environment manually:
 ```bash
 export AWS_ENDPOINT_URL=http://localhost:4566
 export AWS_DEFAULT_REGION=us-east-1
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
+# the root pair Floci printed at first start, or your FLOCI_ROOT_* values
+export AWS_ACCESS_KEY_ID=<root access key id>
+export AWS_SECRET_ACCESS_KEY=<root secret access key>
 ```
 
 </details>
@@ -643,8 +644,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 <summary><strong>Bash, AWS CLI</strong></summary>
 
 ```bash
-export AWS_ACCESS_KEY_ID=test
-export AWS_SECRET_ACCESS_KEY=test
+# the root pair Floci printed at first start, or your FLOCI_ROOT_* values
+export AWS_ACCESS_KEY_ID=<root access key id>
+export AWS_SECRET_ACCESS_KEY=<root secret access key>
 export AWS_DEFAULT_REGION=us-east-1
 
 aws --endpoint-url http://localhost:4566 s3 mb s3://my-bucket

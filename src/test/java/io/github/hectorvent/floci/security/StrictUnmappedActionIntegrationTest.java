@@ -4,7 +4,6 @@ import io.github.hectorvent.floci.testing.RestAssuredJsonUtils;
 import io.github.hectorvent.floci.testutil.S3RequestSigner;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.TestProfile;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -26,12 +25,6 @@ class StrictUnmappedActionIntegrationTest {
     @BeforeAll
     static void configureRestAssured() {
         RestAssuredJsonUtils.configureAwsContentTypes();
-    }
-
-    @AfterAll
-    static void restoreDefaults() {
-        LegacyTestCredentials.resetForTests();
-        StrictModePolicy.resetForTests();
     }
 
     private static S3RequestSigner root() {

@@ -73,15 +73,15 @@ class ApplicationDefaultsTest {
     }
 
     @Test
-    void productionConfigDoesNotSeedIamDeployerPrincipalByDefault() throws IOException {
+    void productionConfigSeedsIamDeployerPrincipalByDefault() throws IOException {
         JsonNode config = new YAMLMapper().readTree(Path.of("src/main/resources/application.yml").toFile());
 
-        assertFalse(config.path("floci")
+        assertTrue(config.path("floci")
                         .path("services")
                         .path("iam")
                         .path("seed-deployer-principal")
-                        .asBoolean(true),
-                "production application.yml should not create default admin credentials unless enabled");
+                        .asBoolean(false),
+                "production application.yml should seed the internal deployer principal by default");
     }
 
     @Test

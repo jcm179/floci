@@ -16,6 +16,7 @@ import io.github.hectorvent.floci.core.common.CertificateMaterialException;
 import io.github.hectorvent.floci.core.common.Pem;
 import io.github.hectorvent.floci.core.common.RegionResolver;
 import io.github.hectorvent.floci.core.common.RequestScopes;
+import io.github.hectorvent.floci.core.common.Resettable;
 import io.github.hectorvent.floci.core.common.ServicePrincipals;
 import io.github.hectorvent.floci.core.common.SessionAccountLookup;
 import io.github.hectorvent.floci.core.common.SmithyValidationErrors;
@@ -108,7 +109,7 @@ import java.util.stream.Stream;
  */
 @Startup
 @ApplicationScoped
-public class IamService implements SessionAccountLookup, ResourceProvider {
+public class IamService implements SessionAccountLookup, ResourceProvider, Resettable {
 
     public static final String FEDERATION_TOKEN_SESSION_MESSAGE =
             "Cannot call GetFederationToken with session credentials";
@@ -429,6 +430,9 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
      * update racing a delete would store the key the delete had just removed.
      */
     private final Object accessKeyLock = new Object();
+
+    /** The root and deployer keys held across an emulator reset, which wipes every IAM store. */
+    private volatile List<AccessKey> keysKeptAcrossReset = List.of();
     /**
      * Guards every check-then-write on an MFA device. Assignment is the reason it has to exist:
      * EnableMFADevice reads the device to confirm it is unassigned and reads the user's device
@@ -683,6 +687,32 @@ public class IamService implements SessionAccountLookup, ResourceProvider {
         seedAwsManagedPolicies();
         seedRootAndDeployerCredentials();
         seedConfiguredAccountAlias();
+    }
+
+    /**
+     * Holds the root and internal deployer keys before an emulator reset wipes the IAM stores, so
+     * the caller that triggered the reset is not locked out and {@link InternalCredentials} stays valid.
+     */
+    @Override
+    public void beforeReset() {
+        keysKeptAcrossReset = RequestScopes.callAs(regionResolver.getDefaultAccountId(), () -> {
+            List<AccessKey> kept = new ArrayList<>(userAccessKeys(ROOT_PRINCIPAL_MARKER));
+            kept.addAll(userAccessKeys(DEFAULT_DEPLOYER_USER));
+            return List.copyOf(kept);
+        });
+    }
+
+    /** Re-creates the root key and the deployer user, policy and key that the reset wiped. */
+    @Override
+    public void clear() {
+        List<AccessKey> kept = keysKeptAcrossReset;
+        keysKeptAcrossReset = List.of();
+        RequestScopes.runAs(regionResolver.getDefaultAccountId(), () -> {
+            for (AccessKey key : kept) {
+                replaceSeededAccessKey(null, key);
+            }
+            seedRootAndDeployerCredentials();
+        });
     }
 
     /**

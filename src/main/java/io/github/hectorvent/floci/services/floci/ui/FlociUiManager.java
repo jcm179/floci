@@ -19,7 +19,6 @@ import io.github.hectorvent.floci.core.common.docker.ContainerStorageHelper;
 import io.github.hectorvent.floci.core.common.docker.CurrentContainerNetworkResolver;
 import io.github.hectorvent.floci.core.common.docker.DockerHostResolver;
 import io.github.hectorvent.floci.core.common.docker.LaunchedContainerAwsEnv;
-import io.github.hectorvent.floci.security.LaunchedCredentials;
 import io.github.hectorvent.floci.services.iam.model.SessionCreds;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -348,10 +347,8 @@ public class FlociUiManager {
         String endpoint = resolveFlociEndpoint();
 
         LinkedHashMap<String, String> env = new LinkedHashMap<>();
-        Optional<SessionCreds> credentials = LaunchedCredentials.internalPair().isPresent()
-                ? Optional.empty() : Optional.of(PLACEHOLDER_CREDENTIALS);
         for (String entry : awsEnv.sdkBaselineEnv(regionResolver.getDefaultRegion(), Optional.empty(),
-                endpoint, credentials)) {
+                endpoint, Optional.of(PLACEHOLDER_CREDENTIALS))) {
             int split = entry.indexOf('=');
             env.put(entry.substring(0, split), entry.substring(split + 1));
         }

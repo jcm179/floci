@@ -2809,6 +2809,41 @@ class IamServiceTest {
     }
 
     @Test
+    void anEmulatorResetKeepsTheRootKeyAndTheDeployerPrincipal() {
+        InMemoryStorage<String, IamUser> users = new InMemoryStorage<>();
+        InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
+        iamService = new IamService(
+                users,
+                new InMemoryStorage<>(),
+                new InMemoryStorage<>(),
+                new InMemoryStorage<>(),
+                accessKeys,
+                new InMemoryStorage<>(),
+                new InMemoryStorage<>(),
+                new RegionResolver("us-east-1", "000000000000"),
+                true);
+        iamService.seedDefaults();
+        KeyPair deployer = InternalCredentials.current().orElseThrow();
+        AccessKey root = accessKeys.scan(k -> true).stream()
+                .filter(key -> IamService.ROOT_PRINCIPAL_MARKER.equals(key.getUserName()))
+                .findFirst().orElseThrow();
+        iamService.createUser("alice", "/");
+
+        iamService.beforeReset();
+        users.clear();
+        accessKeys.clear();
+        iamService.clear();
+
+        assertTrue(iamService.isRootAccessKey(root.getAccessKeyId()));
+        assertEquals(root.getSecretAccessKey(), iamService.findSecretKey(root.getAccessKeyId()).orElseThrow());
+        assertEquals(deployer, InternalCredentials.current().orElseThrow());
+        assertEquals(deployer.secretAccessKey(), iamService.findSecretKey(deployer.accessKeyId()).orElseThrow());
+        assertTrue(iamService.getUser("floci-deployer").getAttachedPolicyArns()
+                .contains("arn:aws:iam::aws:policy/AdministratorAccess"));
+        assertTrue(users.get("alice").isEmpty());
+    }
+
+    @Test
     void seedDefaultsDeletesTheLegacyFlociKey() {
         InMemoryStorage<String, AccessKey> accessKeys = new InMemoryStorage<>();
         iamService = iamService(true, accessKeys);
